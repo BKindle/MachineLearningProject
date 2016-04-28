@@ -1,0 +1,81 @@
+---
+title: "Machine Learning Project"
+output: html_document
+---
+
+# Background
+#### Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+# Data Exploration and Processing
+```{r}
+# Set working directory and load required packages
+setwd("C:/Users/bkindle/Desktop/Data Science/8 - Machine Learning/Project")
+library(caret)
+library(knitr)
+library(randomForest)
+library(doParallel)
+
+# Import training data set
+main_train <- read.csv("pml-training.csv",na.strings = c("NA",""))
+
+# Review the data, take out the first 7 columns which are not
+# relevant to the outcome
+str(main_train) 
+main_train <- main_train[,-c(1:7)]
+main_train_obs  <- dim(main_train)[1]
+main_train_vars <- dim(main_train)[2]
+barplot(table(main_train$classe),main="Model Outcome, Classe", col="blue")
+
+# Test for NA values, exclude variables that are over 95% NA
+na_subset <- c()
+for (i in 1:main_train_vars) {
+na_subset[i] <- ifelse(((sum(is.na(main_train[,i]))/NROW(main_train[,i]))*100)>95,TRUE,FALSE)
+}
+main_train_short <- main_train[,!na_subset]
+main_train_short <- main_train_short[sample(nrow(main_train_short),10000),]
+mts_cols <- dim(main_train_short)[2]
+```
+# Model Selection and Training
+#### Cross Validation involves estimating test set accuracy and out of sample error by splitting the training data set into sub-training and sub-testing sets (i.e. via random subsampling, k-fold, leave one out, etc). This process allows one to detect relevant predictors/features as well as an appropriate model function.
+
+```{r}
+# Split main_train into sub_train and sub_test
+set.seed(1)
+sub_split <- createDataPartition(y=main_train_short$classe, p=0.7, list=FALSE)
+sub_train <- main_train_short[sub_split,]
+sub_test <- main_train_short[-sub_split,]
+```
+#### Our first model type will be the random forest.  This is a good candidate because our outcome is a factor variable and random forests have a reputation for accuracy.  If we find that the expected out of sample error produced by this model is high, we will try another method such as boosting.  
+
+```{r}
+# Initiate parallel processing to make the project run faster
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+
+# Define a few controls to specify how to train the model
+controls <- trainControl(method="cv", number = 6)
+
+# train the model
+random_forest_model_fit <- train(classe~.,data=sub_train,
+method="rf",prox=TRUE,trControl = controls,allowParallel = TRUE)
+
+# Use our model fit on sub_train data to predict classe values in sub_test
+predict_sub_test <- predict(random_forest_model_fit,sub_test)
+
+# Confusion matrix to evaluate model accuracy and estimate out of sample error
+confusionMatrix(predict_sub_test,sub_test$classe)
+
+stopCluster(cl)
+```
+
+#### The confusion matrix shows that our random forest model fit is highly accurate.  Next we will import the main testing set and use our cross validated random forest model to predict its classe values.
+
+```{r}
+# Use our cross-validated model to predict classe values in main_test (aka validation)
+main_test <- read.csv("pml-testing.csv")
+predict_main_test <- predict(random_forest_model_fit,main_test)
+summary(predict_main_test)
+print(predict_main_test)
+```
+
+
